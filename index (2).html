@@ -1,0 +1,685 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="캡쳐한 이미지에 형광펜, 펜, 스포이드로 표시하고 PNG로 저장하는 도구">
+<title>형광펜 캡쳐</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500&family=IBM+Plex+Sans+KR:wght@400;500;600&display=swap">
+<style>
+/* Layout: two slim tool bars over a full-height stage; the image is the hero, chrome stays quiet. */
+:root {
+  --bg: #eef0f4;
+  --surface: #ffffff;
+  --ink: #1b2130;
+  --muted: #5d6679;
+  --line: #d4d9e2;
+  --stage: #e1e5ec;
+  --dot: #cdd3dd;
+  --accent: #26355f;
+  --on-accent: #ffffff;
+  --hover: #f2f4f8;
+  --toast-bg: #1b2130;
+  --toast-fg: #f4f6fa;
+  --font-ui: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  --font-num: "IBM Plex Mono", ui-monospace, "SF Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #13161c; --surface: #1c2028; --ink: #e6e9ef; --muted: #98a1b2; --line: #2d3340;
+    --stage: #0d0f13; --dot: #232833; --accent: #aebcf2; --on-accent: #131a33; --hover: #252a34;
+    --toast-bg: #e6e9ef; --toast-fg: #13161c; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #13161c; --surface: #1c2028; --ink: #e6e9ef; --muted: #98a1b2; --line: #2d3340;
+  --stage: #0d0f13; --dot: #232833; --accent: #aebcf2; --on-accent: #131a33; --hover: #252a34;
+  --toast-bg: #e6e9ef; --toast-fg: #13161c; color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background: var(--bg); color: var(--ink); font-family: var(--font-ui); font-size: 14px;
+  display: grid; grid-template-rows: auto auto 1fr; overflow: hidden;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+button { font: inherit; color: inherit; }
+
+.bar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px;
+  padding-block: 10px; border-bottom: 1px solid var(--line);
+}
+.brand { font-weight: 600; font-size: 15px; letter-spacing: -0.01em; display: flex; align-items: center; gap: 8px; margin-right: 4px; }
+.brand i { width: 18px; height: 8px; border-radius: 2px; background: #ffe14d; transform: skewX(-18deg); display: block; }
+.group { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.spacer { flex: 1 1 0; min-width: 0; }
+.hint { color: var(--muted); font-size: 12.5px; }
+kbd { font-family: var(--font-num); font-size: 11px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; color: var(--muted); }
+
+.btn {
+  height: 32px; padding: 0 12px; border-radius: 7px; border: 1px solid var(--line);
+  background: var(--surface); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+}
+.btn:hover:not(:disabled) { background: var(--hover); }
+.btn:disabled { opacity: .4; cursor: default; }
+.btn.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); font-weight: 500; }
+.btn.primary:hover { filter: brightness(1.08); background: var(--accent); }
+.btn:focus-visible, .seg button:focus-visible, .sw:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.btn svg { width: 16px; height: 16px; }
+
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); padding: 2px; }
+.seg button { border: 0; background: transparent; height: 28px; padding: 0 10px; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
+.seg button[aria-pressed="true"] kbd { color: inherit; border-color: currentColor; opacity: .7; }
+
+.swatches { display: flex; gap: 6px; align-items: center; }
+.sw {
+  width: 24px; height: 24px; border-radius: 50%; border: 0; cursor: pointer; padding: 0;
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,.15);
+}
+.sw[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--ink); }
+.custom { position: relative; width: 24px; height: 24px; border-radius: 50%; overflow: hidden;
+  background: conic-gradient(#ff6b6b, #ffd84d, #7be36b, #59c3ff, #b28bff, #ff6b6b); box-shadow: inset 0 0 0 1px rgba(0,0,0,.15); }
+.custom.on { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--ink); }
+.custom input { position: absolute; inset: -6px; width: 40px; height: 40px; opacity: 0; cursor: pointer; }
+
+.field { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12.5px; }
+.field input[type=range] { width: 96px; accent-color: var(--accent); }
+.num { font-family: var(--font-num); font-size: 12px; color: var(--ink); min-width: 3.2ch; text-align: right; font-variant-numeric: tabular-nums; }
+
+.stage {
+  position: relative; overflow: auto; min-height: 0; margin-inline: calc(-1 * max(16px, env(safe-area-inset-left, 0px))) calc(-1 * max(16px, env(safe-area-inset-right, 0px)));
+  background-color: var(--stage);
+  background-image: radial-gradient(var(--dot) 1px, transparent 1.2px); background-size: 16px 16px;
+  display: grid; place-items: center; padding: 24px;
+}
+.stage.drag { outline: 3px dashed var(--accent); outline-offset: -10px; }
+.wrap { position: relative; line-height: 0; box-shadow: 0 1px 2px rgba(0,0,0,.12), 0 8px 28px rgba(0,0,0,.14); overflow: hidden; }
+canvas#view { display: block; touch-action: none; cursor: none; max-width: none; }
+.wrap.crop canvas#view, .wrap.pick canvas#view { cursor: crosshair; }
+.off { opacity: .35; pointer-events: none; }
+.btn.toggle[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.btn.toggle[aria-pressed="true"] kbd { color: inherit; border-color: currentColor; opacity: .7; }
+.loupe { position: fixed; pointer-events: none; z-index: 6; transform: translate(16px, -48px); display: flex; align-items: center; gap: 7px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 4px 11px 4px 4px; box-shadow: 0 4px 14px rgba(0,0,0,.18); }
+.loupe i { width: 26px; height: 26px; border-radius: 50%; display: block; box-shadow: inset 0 0 0 1px rgba(0,0,0,.2); }
+.loupe span { font: 500 12px/1 var(--font-num); color: var(--ink); font-variant-numeric: tabular-nums; }
+.cropbox { position: absolute; border: 1.5px dashed #fff; box-shadow: 0 0 0 9999px rgba(10,14,22,.5); pointer-events: none; }
+.cropsize { position: absolute; left: 0; top: -22px; font: 500 11px/1 var(--font-num); color: #fff; background: rgba(10,14,22,.75); padding: 4px 6px; border-radius: 4px; white-space: nowrap; }
+
+.brush { position: fixed; pointer-events: none; border-radius: 50%; border: 1.5px solid rgba(0,0,0,.55); box-shadow: 0 0 0 1px rgba(255,255,255,.7); transform: translate(-50%,-50%); z-index: 5; }
+.brush::after { content: ""; position: absolute; left: 50%; top: 50%; width: 2px; height: 2px; margin: -1px; background: rgba(0,0,0,.6); border-radius: 50%; }
+
+.cropbar {
+  position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+  display: flex; gap: 8px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 6px; z-index: 6;
+  box-shadow: 0 8px 28px rgba(0,0,0,.2);
+}
+.toast {
+  position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(76px + env(safe-area-inset-bottom, 0px));
+  background: var(--toast-bg); color: var(--toast-fg); padding: 10px 14px; border-radius: 8px; font-size: 13px;
+  max-width: min(520px, calc(100vw - 32px)); line-height: 1.5; z-index: 7; text-align: center;
+}
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+@media (max-width: 640px) {
+  .hint.wide { display: none; }
+  .seg button kbd { display: none; }
+  .field input[type=range] { width: 76px; }
+  .stage { padding: 12px; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .toast { animation: rise .18s ease-out; }
+  @keyframes rise { from { opacity: 0; transform: translate(-50%, 6px); } }
+}
+</style>
+</head>
+<body>
+
+
+<header class="bar">
+  <div class="brand"><i aria-hidden="true"></i>형광펜 캡쳐</div>
+  <div class="group">
+    <button class="btn" id="capBtn" title="화면이나 창을 골라서 캡쳐">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="13" rx="2"/><path d="M8 21h8M12 18v3"/></svg>화면 캡쳐</button>
+    <button class="btn" id="openBtn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-9 9"/></svg>이미지 열기</button>
+    <input type="file" id="fileIn" accept="image/*" hidden>
+    <span class="hint wide"><kbd>Ctrl</kbd>+<kbd>V</kbd> 붙여넣기 · 끌어다 놓기도 돼요</span>
+  </div>
+  <div class="spacer"></div>
+  <div class="group">
+    <button class="btn" id="undoBtn" title="실행 취소 (Ctrl+Z)" aria-label="실행 취소"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg></button>
+    <button class="btn" id="redoBtn" title="다시 실행 (Ctrl+Shift+Z)" aria-label="다시 실행"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m15 14 5-5-5-5"/><path d="M20 9H10a6 6 0 0 0 0 12h3"/></svg></button>
+    <button class="btn" id="copyBtn">복사</button>
+    <button class="btn primary" id="saveBtn">PNG 저장</button>
+  </div>
+</header>
+
+<nav class="bar" aria-label="그리기 도구">
+  <div class="seg" role="group" aria-label="도구">
+    <button id="tHl" aria-pressed="true">형광펜 <kbd>H</kbd></button>
+    <button id="tPen" aria-pressed="false">펜 <kbd>P</kbd></button>
+    <button id="tPick" aria-pressed="false" title="이미지에서 색을 가져와요 (그리는 중엔 Alt+클릭)">스포이드 <kbd>I</kbd></button>
+    <button id="tCrop" aria-pressed="false">자르기 <kbd>C</kbd></button>
+  </div>
+  <button class="btn toggle" id="lineBtn" aria-pressed="false" title="켜면 반듯한 직선으로 그어져요. Shift를 누른 채 그어도 돼요.">직선 <kbd>L</kbd></button>
+  <div class="swatches" role="group" aria-label="형광펜 색" id="swatches"></div>
+  <label class="field" for="width">굵기 <input type="range" id="width" min="1" max="64" value="22"><span class="num" id="widthNum">22</span></label>
+  <label class="field" for="alpha" id="alphaField">진하기 <input type="range" id="alpha" min="15" max="95" value="55"><span class="num" id="alphaNum">55%</span></label>
+  <div class="seg" role="group" id="blendSeg" aria-label="칠하는 방식" title="곱하기: 밝은 화면에서 글자가 비쳐 보여요 · 일반: 어두운 화면용">
+    <button id="bMul" aria-pressed="true">형광</button>
+    <button id="bNorm" aria-pressed="false">덮기</button>
+  </div>
+  <div class="spacer"></div>
+  <div class="group">
+    <button class="btn" id="clearBtn" title="칠한 것만 지우고 이미지는 남겨요">모두 지우기</button>
+    <button class="btn" id="fitBtn" title="화면에 맞춤 / 실제 크기">실제 크기</button>
+  </div>
+</nav>
+
+<main class="stage" id="stage">
+  <div class="wrap" id="wrap">
+    <canvas id="view" aria-label="캡쳐 이미지 편집 영역"></canvas>
+    <div class="cropbox" id="cropbox" hidden><span class="cropsize" id="cropsize"></span></div>
+  </div>
+</main>
+
+<div class="brush" id="brush" hidden></div>
+<div class="loupe" id="loupe" hidden><i></i><span></span></div>
+<div class="cropbar" id="cropbar" hidden>
+  <button class="btn primary" id="cropOk">이 영역으로 자르기 <kbd>Enter</kbd></button>
+  <button class="btn" id="cropNo">취소 <kbd>Esc</kbd></button>
+</div>
+<div class="toast" id="toast" role="status" hidden></div>
+<p class="sr">단축키: H 형광펜, P 펜, I 스포이드, L 직선 켜고 끄기, C 자르기, 1부터 7 색 선택, 대괄호로 굵기 조절, Shift를 누른 채 그으면 직선.</p>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const view = $("view"), vctx = view.getContext("2d");
+  const wrap = $("wrap"), stage = $("stage"), brush = $("brush"), loupe = $("loupe");
+  const cropbox = $("cropbox"), cropsize = $("cropsize"), cropbar = $("cropbar");
+
+  const PRESETS = {
+    hl: [["노랑", "#ffe14d"], ["연두", "#8eea6b"], ["분홍", "#ff8fc7"], ["하늘", "#74c7ff"], ["주황", "#ffad5c"], ["보라", "#c6a2ff"]],
+    pen: [["빨강", "#e5383b"], ["검정", "#1b1d22"], ["파랑", "#2563eb"], ["초록", "#16a34a"], ["주황", "#f97316"], ["흰색", "#ffffff"]]
+  };
+  // Highlighter and pen each remember their own color and width.
+  const pens = {
+    hl: { color: "#ffe14d", custom: false, width: 22 },
+    pen: { color: "#e5383b", custom: false, width: 4 }
+  };
+  let tool = "hl", drawTool = "hl", lineMode = false, blend = "multiply", fit = true;
+  const cur = () => pens[drawTool];
+  let state = { base: null, strokes: [] };
+  const undoStack = [], redoStack = [];
+  let cache = document.createElement("canvas"), cctx = cache.getContext("2d");
+  let scratch = document.createElement("canvas"), sctx = scratch.getContext("2d");
+  let live = null, crop = null, cropStart = null, rafPending = false;
+  let lastClient = null;
+
+  /* ---------- toast ---------- */
+  let toastTimer;
+  function toast(msg, ms = 2600) {
+    const t = $("toast"); t.textContent = msg; t.hidden = false;
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => (t.hidden = true), ms);
+  }
+
+  /* ---------- color swatches ---------- */
+  const swWrap = $("swatches");
+  const custom = document.createElement("label");
+  custom.className = "custom"; custom.title = "직접 고르기 (7) · 스포이드로 가져온 색도 여기 들어가요";
+  custom.innerHTML = '<input type="color" id="customColor" value="#ff5e5e" aria-label="색 직접 고르기">';
+  const customIn = custom.querySelector("input");
+  customIn.addEventListener("input", () => setColor(customIn.value, true));
+  function renderSwatches() {
+    swWrap.textContent = "";
+    PRESETS[drawTool].forEach(([name, hex], i) => {
+      const b = document.createElement("button");
+      b.className = "sw"; b.style.background = hex; b.title = `${name} (${i + 1})`;
+      b.setAttribute("aria-label", name); b.dataset.hex = hex;
+      b.addEventListener("click", () => setColor(hex));
+      swWrap.append(b);
+    });
+    swWrap.append(custom);
+    syncSwatches();
+  }
+  function syncSwatches() {
+    const p = cur();
+    swWrap.querySelectorAll(".sw").forEach((b) => b.setAttribute("aria-pressed", String(!p.custom && b.dataset.hex === p.color)));
+    custom.classList.toggle("on", p.custom);
+    custom.style.background = p.custom ? p.color : "";
+    if (p.custom) customIn.value = p.color;
+  }
+  function setColor(hex, isCustom = false) {
+    const p = cur(); p.color = hex.toLowerCase(); p.custom = isCustom;
+    syncSwatches(); updateBrush();
+  }
+  renderSwatches();
+
+  /* ---------- sliders ---------- */
+  const widthIn = $("width"), alphaIn = $("alpha");
+  widthIn.addEventListener("input", () => { cur().width = +widthIn.value; $("widthNum").textContent = widthIn.value; updateBrush(); });
+  alphaIn.addEventListener("input", () => { $("alphaNum").textContent = alphaIn.value + "%"; updateBrush(); });
+
+  /* ---------- tool & blend toggles ---------- */
+  function setTool(t) {
+    tool = t;
+    if (t === "hl" || t === "pen") {
+      drawTool = t;
+      widthIn.value = cur().width; $("widthNum").textContent = widthIn.value;
+      renderSwatches();
+    }
+    for (const [id, name] of [["tHl", "hl"], ["tPen", "pen"], ["tPick", "pick"], ["tCrop", "crop"]]) $(id).setAttribute("aria-pressed", String(t === name));
+    const hl = drawTool === "hl";
+    $("alphaField").classList.toggle("off", !hl); $("blendSeg").classList.toggle("off", !hl); alphaIn.disabled = !hl;
+    wrap.classList.toggle("crop", t === "crop"); wrap.classList.toggle("pick", t === "pick");
+    if (t !== "crop") cancelCrop();
+    if (t !== "pick") loupe.hidden = true;
+    brush.hidden = true; updateBrush();
+  }
+  $("tHl").onclick = () => setTool("hl");
+  $("tPen").onclick = () => setTool("pen");
+  $("tPick").onclick = () => setTool("pick");
+  $("tCrop").onclick = () => setTool("crop");
+  function setLineMode(on) {
+    lineMode = on; $("lineBtn").setAttribute("aria-pressed", String(on));
+    if (tool === "pick" || tool === "crop") setTool(drawTool); else updateBrush();
+  }
+  $("lineBtn").onclick = () => setLineMode(!lineMode);
+  function setBlend(b) {
+    blend = b;
+    $("bMul").setAttribute("aria-pressed", String(b === "multiply"));
+    $("bNorm").setAttribute("aria-pressed", String(b === "source-over"));
+  }
+  $("bMul").onclick = () => setBlend("multiply");
+  $("bNorm").onclick = () => setBlend("source-over");
+
+  /* ---------- history ---------- */
+  function commit(next) {
+    undoStack.push(state); if (undoStack.length > 80) undoStack.shift();
+    redoStack.length = 0; state = next; rebuild(); syncButtons();
+  }
+  function undo() { if (!undoStack.length) return; redoStack.push(state); state = undoStack.pop(); rebuild(); syncButtons(); }
+  function redo() { if (!redoStack.length) return; undoStack.push(state); state = redoStack.pop(); rebuild(); syncButtons(); }
+  function syncButtons() {
+    $("undoBtn").disabled = !undoStack.length;
+    $("redoBtn").disabled = !redoStack.length;
+    $("clearBtn").disabled = !state.strokes.length;
+  }
+  $("undoBtn").onclick = undo; $("redoBtn").onclick = redo;
+  $("clearBtn").onclick = () => { if (state.strokes.length) { commit({ base: state.base, strokes: [] }); toast("칠한 걸 모두 지웠어요. Ctrl+Z로 되돌릴 수 있어요."); } };
+
+  /* ---------- rendering ---------- */
+  function sizeCanvases(w, h) {
+    for (const c of [view, cache, scratch]) if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
+  }
+  function strokeBox(s) {
+    const pad = s.width;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const p of s.points) { x0 = Math.min(x0, p.x); y0 = Math.min(y0, p.y); x1 = Math.max(x1, p.x); y1 = Math.max(y1, p.y); }
+    x0 = Math.max(0, Math.floor(x0 - pad)); y0 = Math.max(0, Math.floor(y0 - pad));
+    x1 = Math.min(scratch.width, Math.ceil(x1 + pad)); y1 = Math.min(scratch.height, Math.ceil(y1 + pad));
+    return { x: x0, y: y0, w: Math.max(1, x1 - x0), h: Math.max(1, y1 - y0) };
+  }
+  function tracePath(ctx, s) {
+    const pts = s.points;
+    ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
+    if (pts.length === 1) { ctx.lineTo(pts[0].x + 0.01, pts[0].y); return; }
+    if (s.type === "line") { ctx.lineTo(pts[1].x, pts[1].y); return; }
+    for (let i = 1; i < pts.length - 1; i++) {
+      const mx = (pts[i].x + pts[i + 1].x) / 2, my = (pts[i].y + pts[i + 1].y) / 2;
+      ctx.quadraticCurveTo(pts[i].x, pts[i].y, mx, my);
+    }
+    const last = pts[pts.length - 1]; ctx.lineTo(last.x, last.y);
+  }
+  // Each stroke is drawn opaque first, then laid down once at its opacity,
+  // so a stroke that crosses itself doesn't get darker where it overlaps.
+  function drawStroke(ctx, s) {
+    const b = strokeBox(s);
+    sctx.clearRect(b.x, b.y, b.w, b.h);
+    sctx.save();
+    sctx.strokeStyle = s.color; sctx.lineWidth = s.width;
+    sctx.lineJoin = "round"; sctx.lineCap = s.cap || (s.type === "line" ? "butt" : "round");
+    tracePath(sctx, s); sctx.stroke();
+    sctx.restore();
+    ctx.save();
+    ctx.globalAlpha = s.alpha; ctx.globalCompositeOperation = s.blend;
+    ctx.drawImage(scratch, b.x, b.y, b.w, b.h, b.x, b.y, b.w, b.h);
+    ctx.restore();
+  }
+  function rebuild() {
+    const base = state.base; if (!base) return;
+    const sizeChanged = view.width !== base.width || view.height !== base.height;
+    sizeCanvases(base.width, base.height);
+    cctx.clearRect(0, 0, cache.width, cache.height);
+    cctx.drawImage(base, 0, 0);
+    for (const s of state.strokes) drawStroke(cctx, s);
+    paint();
+    if (sizeChanged) layout();
+  }
+  function paint() {
+    vctx.clearRect(0, 0, view.width, view.height);
+    vctx.drawImage(cache, 0, 0);
+    if (live) drawStroke(vctx, live);
+  }
+  function schedulePaint() {
+    if (rafPending) return; rafPending = true;
+    requestAnimationFrame(() => { rafPending = false; paint(); });
+  }
+
+  /* ---------- layout (fit vs. actual size) ---------- */
+  function layout() {
+    if (!view.width) return;
+    const cs = getComputedStyle(stage);
+    const availW = stage.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    const availH = stage.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+    let scale;
+    if (fit) scale = Math.min(availW / view.width, availH / view.height, 2);
+    else scale = 1 / (window.devicePixelRatio || 1);
+    const w = Math.max(1, Math.round(view.width * scale)), h = Math.max(1, Math.round(view.height * scale));
+    view.style.width = w + "px"; view.style.height = h + "px";
+    wrap.style.width = w + "px"; wrap.style.height = h + "px";
+    stage.style.placeItems = fit ? "center" : "start";
+    if (crop) drawCropBox();
+    updateBrush();
+  }
+  new ResizeObserver(layout).observe(stage);
+  $("fitBtn").onclick = () => { fit = !fit; $("fitBtn").textContent = fit ? "실제 크기" : "화면에 맞춤"; layout(); };
+
+  const cssScale = () => view.getBoundingClientRect().width / view.width;
+  function toImg(e) {
+    const r = view.getBoundingClientRect();
+    return { x: (e.clientX - r.left) * (view.width / r.width), y: (e.clientY - r.top) * (view.height / r.height) };
+  }
+  const imgWidth = () => +widthIn.value / cssScale();
+
+  /* ---------- brush cursor ---------- */
+  function updateBrush() {
+    if (!lastClient || tool === "crop" || tool === "pick") { brush.hidden = true; return; }
+    const d = +widthIn.value;
+    brush.style.width = d + "px"; brush.style.height = d + "px";
+    brush.style.left = lastClient.x + "px"; brush.style.top = lastClient.y + "px";
+    const a = drawTool === "pen" ? 0.85 : (+alphaIn.value / 100) * 0.6;
+    brush.style.background = cur().color + Math.round(a * 255).toString(16).padStart(2, "0");
+    brush.style.borderRadius = lineMode && drawTool === "hl" ? "3px" : "50%";
+    brush.hidden = false;
+  }
+
+  /* ---------- eyedropper ---------- */
+  const px = document.createElement("canvas"); px.width = px.height = 1;
+  const pxc = px.getContext("2d", { willReadFrequently: true });
+  // Samples the captured image itself, so highlights painted on top don't skew the color.
+  function colorAt(p) {
+    const b = state.base, x = Math.floor(p.x), y = Math.floor(p.y);
+    if (!b || x < 0 || y < 0 || x >= b.width || y >= b.height) return null;
+    pxc.clearRect(0, 0, 1, 1); pxc.drawImage(b, x, y, 1, 1, 0, 0, 1, 1);
+    const d = pxc.getImageData(0, 0, 1, 1).data;
+    return "#" + [d[0], d[1], d[2]].map((v) => v.toString(16).padStart(2, "0")).join("");
+  }
+  function showLoupe(e) {
+    const hex = colorAt(toImg(e));
+    if (!hex) { loupe.hidden = true; return; }
+    loupe.style.left = e.clientX + "px"; loupe.style.top = e.clientY + "px";
+    loupe.firstElementChild.style.background = hex;
+    loupe.lastElementChild.textContent = hex.toUpperCase();
+    loupe.hidden = false;
+  }
+  function pickAt(p, backToDrawing) {
+    const hex = colorAt(p); if (!hex) return;
+    setColor(hex, true);
+    if (backToDrawing) setTool(drawTool);
+    toast(`색을 가져왔어요 ${hex.toUpperCase()} · ${drawTool === "pen" ? "펜" : "형광펜"}에 적용했어요`);
+  }
+
+  /* ---------- drawing ---------- */
+  function snap(a, b) {
+    const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy);
+    const ang = Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) * (Math.PI / 4);
+    return { x: a.x + Math.cos(ang) * len, y: a.y + Math.sin(ang) * len };
+  }
+  view.addEventListener("pointerdown", (e) => {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    if (!state.base) return;
+    e.preventDefault(); view.setPointerCapture(e.pointerId);
+    const p = toImg(e);
+    if (tool === "crop") { cropStart = p; crop = { x: p.x, y: p.y, w: 0, h: 0 }; cropbar.hidden = true; drawCropBox(); return; }
+    if (tool === "pick" || e.altKey) { pickAt(p, tool === "pick"); return; }
+    const asLine = lineMode || e.shiftKey, isPen = drawTool === "pen";
+    live = {
+      type: asLine ? "line" : "free", snapAlways: e.shiftKey,
+      color: cur().color, alpha: isPen ? 1 : +alphaIn.value / 100, width: imgWidth(),
+      blend: isPen ? "source-over" : blend, cap: isPen || !asLine ? "round" : "butt",
+      points: asLine ? [p, { ...p }] : [p]
+    };
+    schedulePaint();
+  });
+  view.addEventListener("pointermove", (e) => {
+    lastClient = { x: e.clientX, y: e.clientY }; updateBrush();
+    if (tool === "pick") showLoupe(e);
+    if (tool === "crop" && cropStart) {
+      const p = toImg(e);
+      const x0 = Math.max(0, Math.min(cropStart.x, p.x)), y0 = Math.max(0, Math.min(cropStart.y, p.y));
+      const x1 = Math.min(view.width, Math.max(cropStart.x, p.x)), y1 = Math.min(view.height, Math.max(cropStart.y, p.y));
+      crop = { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }; drawCropBox(); return;
+    }
+    if (!live) return;
+    if (live.type === "line") {
+      const p = toImg(e);
+      live.points[1] = (live.snapAlways || e.shiftKey) ? snap(live.points[0], p) : p;
+    } else {
+      const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
+      for (const ev of (evs.length ? evs : [e])) {
+        const p = toImg(ev), last = live.points[live.points.length - 1];
+        if (Math.hypot(p.x - last.x, p.y - last.y) > 1.2) live.points.push(p);
+      }
+    }
+    schedulePaint();
+  });
+  function endPointer() {
+    if (tool === "crop" && cropStart) {
+      cropStart = null;
+      if (crop && crop.w > 4 && crop.h > 4) cropbar.hidden = false; else cancelCrop();
+      return;
+    }
+    if (!live) return;
+    const s = live; live = null;
+    if (s.type === "line" && Math.hypot(s.points[1].x - s.points[0].x, s.points[1].y - s.points[0].y) < 2) { paint(); return; }
+    delete s.snapAlways;
+    commit({ base: state.base, strokes: [...state.strokes, s] });
+  }
+  view.addEventListener("pointerup", endPointer);
+  view.addEventListener("pointercancel", endPointer);
+  view.addEventListener("pointerleave", () => { loupe.hidden = true; if (!live) { lastClient = null; brush.hidden = true; } });
+
+  /* ---------- crop ---------- */
+  function drawCropBox() {
+    if (!crop) { cropbox.hidden = true; return; }
+    const k = cssScale();
+    cropbox.style.left = crop.x * k + "px"; cropbox.style.top = crop.y * k + "px";
+    cropbox.style.width = crop.w * k + "px"; cropbox.style.height = crop.h * k + "px";
+    cropsize.textContent = `${Math.round(crop.w)} × ${Math.round(crop.h)}`;
+    cropsize.style.top = crop.y * k < 26 ? "4px" : "-22px";
+    cropsize.style.left = crop.y * k < 26 ? "4px" : "0";
+    cropbox.hidden = false;
+  }
+  function cancelCrop() { crop = null; cropStart = null; cropbox.hidden = true; cropbar.hidden = true; }
+  function applyCrop() {
+    if (!crop || crop.w < 2 || crop.h < 2) return;
+    const x = Math.round(crop.x), y = Math.round(crop.y), w = Math.round(crop.w), h = Math.round(crop.h);
+    const nb = document.createElement("canvas"); nb.width = w; nb.height = h;
+    nb.getContext("2d").drawImage(state.base, x, y, w, h, 0, 0, w, h);
+    const strokes = state.strokes.map((s) => ({ ...s, points: s.points.map((p) => ({ x: p.x - x, y: p.y - y })) }));
+    cancelCrop(); commit({ base: nb, strokes }); setTool(drawTool);
+    toast("잘랐어요. 이제 칠하면 돼요.");
+  }
+  $("cropOk").onclick = applyCrop; $("cropNo").onclick = cancelCrop;
+
+  /* ---------- loading images ---------- */
+  function loadDrawable(src, w, h, note) {
+    const c = document.createElement("canvas"); c.width = w; c.height = h;
+    c.getContext("2d").drawImage(src, 0, 0, w, h);
+    cancelCrop();
+    commit({ base: c, strokes: [] });
+    if (note) toast(note);
+  }
+  async function loadBlob(blob, note = "불러왔어요. 칠해 보세요.") {
+    try {
+      const bmp = await createImageBitmap(blob);
+      loadDrawable(bmp, bmp.width, bmp.height, note);
+      bmp.close && bmp.close();
+    } catch { toast("이 파일은 이미지로 열 수 없어요. PNG나 JPG로 다시 시도해 주세요."); }
+  }
+  $("openBtn").onclick = () => $("fileIn").click();
+  $("fileIn").addEventListener("change", (e) => { const f = e.target.files[0]; if (f) loadBlob(f); e.target.value = ""; });
+
+  window.addEventListener("paste", (e) => {
+    const items = e.clipboardData ? [...e.clipboardData.items] : [];
+    const it = items.find((i) => i.type.startsWith("image/"));
+    if (it) { e.preventDefault(); loadBlob(it.getAsFile(), "붙여넣었어요. 칠해 보세요."); }
+    else toast("클립보드에 이미지가 없어요. 먼저 Win+Shift+S로 캡쳐해 주세요.");
+  });
+  ["dragenter", "dragover"].forEach((t) => stage.addEventListener(t, (e) => { e.preventDefault(); stage.classList.add("drag"); }));
+  ["dragleave", "drop"].forEach((t) => stage.addEventListener(t, () => stage.classList.remove("drag")));
+  stage.addEventListener("drop", (e) => {
+    e.preventDefault();
+    const f = [...(e.dataTransfer?.files || [])].find((f) => f.type.startsWith("image/"));
+    if (f) loadBlob(f);
+  });
+
+  const CAPTURE_FALLBACK = "여기서는 화면 캡쳐가 막혀 있어요. Win+Shift+S(맥은 Cmd+Shift+Ctrl+4)로 찍은 다음 Ctrl+V로 붙여넣어 주세요.";
+  $("capBtn").onclick = async () => {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) { toast(CAPTURE_FALLBACK, 5000); return; }
+    let stream;
+    try { stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false }); }
+    catch { toast("캡쳐를 시작하지 못했어요. " + CAPTURE_FALLBACK.replace("여기서는 화면 캡쳐가 막혀 있어요. ", "대신 "), 5000); return; }
+    const track = stream.getVideoTracks()[0];
+    try {
+      let frame = null;
+      if ("ImageCapture" in window) { try { frame = await new ImageCapture(track).grabFrame(); } catch {} }
+      if (frame) loadDrawable(frame, frame.width, frame.height);
+      else {
+        const v = document.createElement("video"); v.muted = true; v.playsInline = true; v.srcObject = stream;
+        await v.play();
+        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+        loadDrawable(v, v.videoWidth, v.videoHeight);
+      }
+      setTool("crop");
+      toast("캡쳐했어요. 필요한 영역만 드래그해서 자르거나, H를 눌러 바로 칠하세요.", 4000);
+    } catch { toast(CAPTURE_FALLBACK, 5000); }
+    finally { stream.getTracks().forEach((t) => t.stop()); }
+  };
+
+  /* ---------- export ---------- */
+  const stamp = () => {
+    const d = new Date(), z = (n) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}${z(d.getMonth() + 1)}${z(d.getDate())}_${z(d.getHours())}${z(d.getMinutes())}${z(d.getSeconds())}`;
+  };
+  const pngBlob = () => new Promise((r) => cache.toBlob(r, "image/png"));
+  const downloadsP = (window.claude && typeof window.claude.use === "function")
+    ? window.claude.use("downloads").catch(() => null) : Promise.resolve(null);
+
+  $("saveBtn").onclick = async () => {
+    if (!state.base) return;
+    const blob = await pngBlob(), filename = `형광펜캡쳐_${stamp()}.png`;
+    const dl = await downloadsP;
+    if (dl) {
+      try { await dl.save({ filename, data: blob }); toast("저장했어요."); }
+      catch (e) { if (e && e.code === "declined") return; toast("여기서는 저장이 안 돼요. 복사 버튼으로 가져가 주세요."); }
+      return;
+    }
+    const url = URL.createObjectURL(blob), a = document.createElement("a");
+    a.href = url; a.download = filename; document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 3000);
+    toast("저장했어요. 다운로드 폴더를 확인해 주세요.");
+  };
+  $("copyBtn").onclick = () => {
+    if (!state.base) return;
+    try {
+      const item = new ClipboardItem({ "image/png": pngBlob() });
+      navigator.clipboard.write([item]).then(
+        () => toast("이미지를 복사했어요. 원하는 곳에 Ctrl+V 하세요."),
+        () => toast("이 화면에서는 이미지 복사가 막혀 있어요. PNG 저장을 써 주세요.")
+      );
+    } catch { toast("이 브라우저는 이미지 복사를 지원하지 않아요. PNG 저장을 써 주세요."); }
+  };
+
+  /* ---------- keyboard ---------- */
+  window.addEventListener("keydown", (e) => {
+    const tag = (e.target.tagName || "").toLowerCase();
+    if (tag === "input" && e.target.type !== "range") return;
+    const mod = e.ctrlKey || e.metaKey, k = e.key.toLowerCase();
+    if (mod && k === "z") { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
+    if (mod && k === "y") { e.preventDefault(); redo(); return; }
+    if (mod && k === "s") { e.preventDefault(); $("saveBtn").click(); return; }
+    if (mod || e.altKey) return;
+    if (k === "h") setTool("hl");
+    else if (k === "p") setTool("pen");
+    else if (k === "i") setTool("pick");
+    else if (k === "l") setLineMode(!lineMode);
+    else if (k === "c") setTool("crop");
+    else if (k === "enter" && crop) applyCrop();
+    else if (k === "escape") { cancelCrop(); if (tool === "pick") setTool(drawTool); }
+    else if (k >= "1" && k <= "6") setColor(PRESETS[drawTool][+k - 1][1]);
+    else if (k === "7") customIn.click();
+    else if (k === "[" || k === "]") {
+      const v = +widthIn.value, step = v <= 8 ? 1 : 4;
+      widthIn.value = Math.max(1, Math.min(64, v + (k === "]" ? step : -step)));
+      widthIn.dispatchEvent(new Event("input"));
+    }
+  });
+
+  /* ---------- sample image (example, replaced by the first capture) ---------- */
+  async function sample() {
+    try { await Promise.race([document.fonts.load('500 30px "IBM Plex Sans KR"'), new Promise((r) => setTimeout(r, 1500))]); } catch {}
+    const W = 1200, H = 680, c = document.createElement("canvas"); c.width = W; c.height = H;
+    const g = c.getContext("2d");
+    const F = '"IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif';
+    g.fillStyle = "#fbfbfa"; g.fillRect(0, 0, W, H);
+    g.fillStyle = "#e9ebef"; g.fillRect(0, 0, W, 54);
+    ["#ff6159", "#ffbd2e", "#28c941"].forEach((col, i) => { g.fillStyle = col; g.beginPath(); g.arc(30 + i * 22, 27, 7, 0, Math.PI * 2); g.fill(); });
+    g.fillStyle = "#7b8190"; g.font = `500 17px ${F}`; g.fillText("메모 — 예시 이미지", 110, 33);
+    g.fillStyle = "#1b2130"; g.font = `600 40px ${F}`; g.fillText("형광펜 캡쳐 쓰는 법", 72, 136);
+    const lines = [
+      ["1.", "Win + Shift + S 로 필요한 부분만 캡쳐해요"],
+      ["2.", "이 창을 누르고 Ctrl + V 로 붙여넣어요"],
+      ["3.", "형광펜(H)·펜(P)으로 긋고, 스포이드(I)로 색을 따요"],
+      ["4.", "Shift 를 누른 채 그으면 반듯한 직선이 돼요"],
+      ["5.", "PNG 저장 또는 복사로 바로 가져가요"]
+    ];
+    g.font = `400 30px ${F}`;
+    const pos = [];
+    lines.forEach(([n, t], i) => {
+      const y = 228 + i * 78;
+      g.fillStyle = "#9aa1af"; g.fillText(n, 72, y);
+      g.fillStyle = "#2a3040"; g.fillText(t, 112, y);
+      pos.push({ y, x: 112, t });
+    });
+    g.fillStyle = "#b4b9c4"; g.font = `400 18px ${F}`;
+    g.fillText("이 예시는 첫 캡쳐를 불러오면 사라져요.", 72, H - 40);
+    state = { base: c, strokes: [] };
+    const seg = (p, before, word) => {
+      g.font = `400 30px ${F}`;
+      const x0 = p.x + g.measureText(before).width, x1 = x0 + g.measureText(word).width;
+      return { x0, x1, y: p.y - 10 };
+    };
+    const a = seg(pos[1], "이 창을 누르고 ", "Ctrl + V");
+    const b = seg(pos[3], "", "Shift 를 누른 채 그으면");
+    const s1 = { type: "line", color: "#ffe14d", alpha: 0.6, width: 38, blend: "multiply", points: [{ x: a.x0 - 4, y: a.y }, { x: a.x1 + 4, y: a.y }] };
+    const pts = []; for (let x = b.x0 - 6; x <= b.x1 + 6; x += 14) pts.push({ x, y: b.y + Math.sin(x / 70) * 3 });
+    const s2 = { type: "free", color: "#ff8fc7", alpha: 0.55, width: 36, blend: "multiply", points: pts };
+    state.strokes = [s1, s2];
+    rebuild(); syncButtons(); layout();
+  }
+  sample();
+})();
+</script>
+</body>
+</html>
